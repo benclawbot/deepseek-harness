@@ -118,7 +118,7 @@ export function rememberTool(memory: {
       return {
         key: note.key,
         value: note.value,
-        tags: note.tags,
+        tags: [...note.tags],
         updatedAt: note.updatedAt,
       }
     },
