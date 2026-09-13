@@ -81,10 +81,10 @@ const output = {
  * @returns the tool definition ready for `ctx.tools.register()`.
  */
 export function rememberTool(memory: {
-  remember: (key: string, value: string, tags: string[]) => Promise<{
+  remember: (key: string, value: string, tags: readonly string[]) => Promise<{
     key: string
     value: string
-    tags: string[]
+    tags: readonly string[]
     updatedAt: number
   }>
 }) {
@@ -98,7 +98,7 @@ export function rememberTool(memory: {
         const v = value as {
           key: string
           value: string
-          tags: string[]
+          tags: readonly string[]
           updatedAt: number
         }
         return [{
@@ -118,7 +118,7 @@ export function rememberTool(memory: {
       return {
         key: note.key,
         value: note.value,
-        tags: [...note.tags],
+        tags: note.tags,
         updatedAt: note.updatedAt,
       }
     },
