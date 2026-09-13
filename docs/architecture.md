@@ -65,6 +65,7 @@ Here are some core packages that contribute to the Cordis tree.
 | [`core/agent-loop`](subsystems/core.md) | The default driver implementing that interface | `ctx.agentLoop` |
 | [`core/scope`](subsystems/scope.md) | The per-agent scoped-registration primitive | library, no key |
 | [`llm/llm`](subsystems/llm-streaming.md) | Message and stream vocabulary plus the adapter seam | `ctx.llm` |
+| [`core/runtime-identity`](subsystems/runtime-identity.md) | The running profile's logged self-description and heartbeat seam | `ctx.runtime` |
 | [`webhook/webhook`](subsystems/webhook.md) | Authenticated-delivery dispatch and Workspace Session creation | `ctx.webhookRuntime` |
 
 ## Events
@@ -128,6 +129,8 @@ A **seam** is a swappable capability with three roles: a **Service Definition** 
 
 Seams are why one provider swap changes the whole product. Filesystem and subprocess providers share one execution world, so pointing them at a remote sandbox moves Bash, PTY, and LSP with them, with no provider forks. [Subagent providers](subsystems/subagent.md) vary just as widely behind one interface, from a fresh child agent to a delegated turn in another product.
 
+`runtime-identity` is the seam that makes the harness itself introspectable: every shipped profile registers a `RuntimeIdentityProvider` and the prompt assembly carries the resulting `runtime/world-state` section on every turn. The seam is mandatory; `verify-application-entrypoints` rejects a profile that lacks the registration.
+
 [Experimental Agent Teams](subsystems/agent-team.md) is a published opt-in coordination seam on `ctx.agentTeams`, with a durable roster, task board, and mailbox layered over continuable subagents.
 
 ## Where new behavior goes
@@ -156,5 +159,9 @@ New behavior attaches to a documented extension point. Changing the loop itself 
 | Fork a session at a turn boundary | `ctx.agents.create({ sessionId, seed, meta: { parentSession, seedLength } })` — only agent-loop-published sessions persist |
 | Store sessions in a new backend | implement `SessionPersistence` (`create`/`open`/`stat`/`list`/`export`) over the shared handle scaffolding |
 | Scope a registration to one agent | use that agent's `agent.ctx` |
+| Make the running runtime model-visible | register a `RuntimeIdentityProvider` on `ctx.runtime`; the prompt assembly renders the `runtime/world-state` section, and the log gains `runtime/identity`, `runtime/heartbeat`, and `runtime/heartbeat-lost` events |
+| Detect a silent host failure | subscribe to `runtime/heartbeat-lost`; the event commits within one heartbeat interval plus configured grace when the host stops responding |
+| Identify a profile across machines | read `runtime/identity`'s `buildFingerprint`; it is the content hash of the resolved bundle stack and the source checkout id when known |
+| Address a long-running subagent from a parent session | use `runtime/identity.processId` together with the subagent's session id; the logged identity lets the parent re-locate the child after a host restart |
 
 The [extension cookbook](cookbook/extension-cookbook.md) maps features to capabilities and indexes the step-by-step guides for [packages](cookbook/adding-a-package.md), [tools](cookbook/adding-a-tool.md), [LLM adapters](cookbook/adding-an-llm-adapter.md), and [settings cards](cookbook/adding-a-settings-card.md). The [Conversation subsystem](subsystems/conversation.md) owns Chat-node assembly.

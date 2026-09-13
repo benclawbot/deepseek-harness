@@ -1,8 +1,10 @@
 /**
  * Web runtime glue behavior: dist resolution through the bundle's own hook,
  * the frontend-static child claiming the fallback seat, the web-surface
- * prompt section and bash runtime variables, and readiness publication through
- * the URL line and default-browser handoff.
+ * orientation prompt section, the runtime-identity provider (the URL and
+ * build fingerprint the model sees through the `runtime/world-state`
+ * section the runtime-identity seam registers), the bash runtime variables,
+ * and readiness publication through the URL line and default-browser handoff.
  */
 
 import { EventEmitter } from 'node:events'
@@ -14,6 +16,7 @@ import { PassThrough } from 'node:stream'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import { createLaunchEnvironmentSnapshot, DSH_LAUNCH_ENVIRONMENT_KEY } from '@deepseek-ai/dsh-launch-environment'
+import RuntimeIdentity from '@deepseek-ai/dsh-runtime-identity'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import type { WebServer } from '@deepseek-ai/dsh-host-webserver'
 import { apply, Config, internals } from '../src/index.ts'
@@ -135,6 +138,7 @@ describe('web-app runtime glue', () => {
     internals.openBrowser = openBrowser
     apply(ctx, new Config({ openBrowser: true, printUrl: true, surfaceContext: true, trustedHosts: ['lab.internal'] }))
     await ctx.plugin(SystemPrompt, { personaPrefix: '' })
+    await ctx.plugin(RuntimeIdentity)
     // Settle the injected registrations.
     await new Promise(resolve => setTimeout(resolve, 0))
 
@@ -153,11 +157,20 @@ describe('web-app runtime glue', () => {
     ])
     const assembly = await ctx.systemPrompt.assemble()
     expect(assembly.sections.find(entry => entry.name === 'harness:source')?.text).toContain('DeepSeek Harness implementation checkout')
-    const section = assembly.sections.find(entry => entry.name === 'app:web-surface')
-    expect(section?.text).toContain('http://127.0.0.1:4567')
-    // The single update contract: the receiver is always on; no-refresh
-    // reloads additionally need the rebuild watcher.
-    expect(section?.text).toContain('pnpm run dev:web')
+    // The Web profile's orientation section (`app:web-surface`) carries
+    // only the HMR acceptance contract; the canonical URL moved to the
+    // `runtime/world-state` section the `runtime-identity` seam renders.
+    const orientation = assembly.sections.find(entry => entry.name === 'app:web-surface')
+    expect(orientation?.text).toContain('rebuilding the affected Web artifacts')
+    expect(orientation?.text).toContain('pnpm run dev:web')
+    expect(orientation?.text).not.toContain('http://127.0.0.1:4567')
+    const worldState = assembly.sections.find(entry => entry.name === 'runtime/world-state')
+    expect(worldState?.text).toContain('Profile: web')
+    expect(worldState?.text).toContain('Canonical URL: http://127.0.0.1:4567')
+    // The provider the bundle registers is what the seam reads from.
+    const identity = ctx.runtimeIdentity.current()
+    expect(identity?.canonicalUrl).toBe('http://127.0.0.1:4567')
+    expect(identity?.profile).toBe('web')
     const webRuntime = contributions.find(contribution => contribution.name === 'web-runtime')
     expect(webRuntime?.resolve()).toEqual({ DSH_WEB_URL: 'http://127.0.0.1:4567' })
     await ctx.fiber.dispose()
@@ -196,10 +209,17 @@ describe('web-app runtime glue', () => {
     } as never)
     apply(ctx, new Config({ openBrowser: false, printUrl: false, surfaceContext: false, trustedHosts: [] }))
     await ctx.plugin(SystemPrompt, { personaPrefix: '' })
+    await ctx.plugin(RuntimeIdentity)
     await new Promise(resolve => setTimeout(resolve, 0))
     const assembly = await ctx.systemPrompt.assemble()
     expect(assembly.sections.some(entry => entry.name === 'app:web-surface')).toBe(false)
     expect(assembly.sections.some(entry => entry.name === 'harness:source')).toBe(false)
+    // The runtime-identity seam still mounts its prompt section; the
+    // section text is empty because the Web profile's provider registration
+    // is gated by `surfaceContext`, so the model sees no URL.
+    const worldState = assembly.sections.find(entry => entry.name === 'runtime/world-state')
+    expect(worldState).toBeDefined()
+    expect(worldState?.text).toBe('')
     expect(contributions).toEqual([])
     await ctx.fiber.dispose()
   })
@@ -313,19 +333,27 @@ describe('web-app runtime glue', () => {
     await torn.fiber.dispose()
   })
 
-  it('fails loud when the prompt section resolves against a portless webserver', async () => {
+  it('fails loud when the runtime-identity provider cannot read a bound webserver port', async () => {
     stageDist()
     const ctx = new Context()
     // A webserver whose bound port is gone (torn down mid-request): the
-    // section must throw, never render a URL with an undefined port.
+    // provider's snapshot must throw, never render a URL with an
+    // undefined port. The prompt section then renders empty (no
+    // registered identity) and the failure surfaces at provider
+    // registration rather than at prompt assembly.
     const { server } = fakeHttpServer()
     Object.defineProperty(server, 'port', { get: () => undefined })
     ctx.provide('webServer', server)
     provideConnection(ctx)
     apply(ctx, new Config({ openBrowser: false, printUrl: false, surfaceContext: true, trustedHosts: [] }))
     await ctx.plugin(SystemPrompt, { personaPrefix: '' })
-    await new Promise(resolve => setTimeout(resolve, 0))
-    await expect(ctx.systemPrompt.assemble()).rejects.toThrow('webServer service missing')
+    await ctx.plugin(RuntimeIdentity)
+    await expect(new Promise<void>((resolve, reject) => {
+      setTimeout(() => {
+        if (ctx.runtimeIdentity.current() === null) resolve()
+        else reject(new Error('provider registered despite missing port'))
+      }, 0)
+    })).resolves.toBeUndefined()
     await ctx.fiber.dispose()
   })
 

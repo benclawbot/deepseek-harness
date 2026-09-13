@@ -166,6 +166,7 @@
     { "path": "./packages/llm/token-meter" },
     { "path": "./packages/core/session" },
     { "path": "./packages/core/scope" },
+    { "path": "./packages/core/runtime-identity" },
     { "path": "./packages/typert/protocol" },
     { "path": "./packages/typert/registry" },
     { "path": "./packages/api/gateway/tsconfig.host.json" },

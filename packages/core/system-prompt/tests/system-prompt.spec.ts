@@ -21,7 +21,7 @@ const SECTION_ORDER_NAMES = [
   'TOOL_LSP', 'TOOL_SESSION_QUERY', 'TOOL_GOAL', 'TOOL_CORDIS', 'TOOL_WORKFLOW',
   'TOOL_RALPH', 'TOOL_SUBAGENT', 'TOOL_REPORT', 'TOOLS_SDK',
   'DELIVERABLE_FILE_REFERENCES', 'STRUCTURED_OUTPUT',
-  'HARNESS_SOURCE', 'WEB_SURFACE', 'DEPLOYMENT_PERSONA_SUFFIX',
+  'HARNESS_SOURCE', 'RUNTIME_WORLD_STATE', 'DEPLOYMENT_PERSONA_SUFFIX',
 ] as const satisfies readonly PromptSectionOrderName[]
 const CONTEXT_ORDER_NAMES = [
   'SANDBOX_POLICY', 'APPROVAL_POLICY', 'SUBAGENT_DELEGATION',
@@ -50,7 +50,7 @@ describe('SystemPrompt', () => {
         ctx.systemPrompt.variable(key, () => environment[key])
       }
       const reusable = SECTION_ORDER_NAMES.filter(name =>
-        !['HARNESS_IDENTITY', 'DEPLOYMENT_PERSONA_PREFIX', 'HARNESS_SOURCE', 'WEB_SURFACE', 'DEPLOYMENT_PERSONA_SUFFIX'].includes(name))
+        !['HARNESS_IDENTITY', 'DEPLOYMENT_PERSONA_PREFIX', 'HARNESS_SOURCE', 'RUNTIME_WORLD_STATE', 'DEPLOYMENT_PERSONA_SUFFIX'].includes(name))
       for (const name of [...reusable].reverse()) {
         ctx.systemPrompt.section({ name, order: ctx.systemPrompt.getSectionOrder(name), text: name })
       }
@@ -58,7 +58,7 @@ describe('SystemPrompt', () => {
         name: 'source', order: ctx.systemPrompt.getSectionOrder('HARNESS_SOURCE'), text: () => environment.source,
       })
       ctx.systemPrompt.section({
-        name: 'web', order: ctx.systemPrompt.getSectionOrder('WEB_SURFACE'), text: () => environment.url,
+        name: 'web', order: ctx.systemPrompt.getSectionOrder('RUNTIME_WORLD_STATE'), text: () => environment.url,
       })
       const first = renderPrompt(await ctx.systemPrompt.assemble())
       environment = { model: 'model-a', cwd: 'C:/bob/project', platform: 'win32', source: 'C:/bob/dsh', url: 'http://127.0.0.1:4080' }

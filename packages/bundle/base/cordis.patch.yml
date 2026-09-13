@@ -165,6 +165,14 @@
         writeEveryEvents: 200
         writeIntervalMs: 5000
 
+    # Runtime identity: the harness's own model-visible self-description
+    # (profile, canonical URL, build fingerprint, capabilities). Every
+    # shipped profile registers a `RuntimeIdentityProvider` against this
+    # seam; the prompt assembly renders the `runtime/world-state` section
+    # on every turn. The mount itself ships no provider — profiles do.
+    - id: runtime-identity
+      name: '@deepseek-ai/dsh-runtime-identity'
+
     # OTel releases a Session-log prefix only after explicit user feedback,
     # regardless of model provider. Ordinary activity never triggers capture.
     # DSH_TELEMETRY_OTLP_URL overrides the production endpoint. A non-empty

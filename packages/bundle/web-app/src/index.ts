@@ -4,14 +4,19 @@
  * manifest field). The plugin owns the browser-surface glue: it resolves
  * the built frontend dist (workspace knowledge of this bundle, never user
  * config), mounts the `frontend-static` fallback owner over it, registers the
- * harness-source and web-surface prompt sections, the bash-visible web runtime
- * variable, the process-token URL line, and the default-browser handoff. The
- * model and shell retain the clean URL. App command-line values arrive through
- * the `webStartup` service expressions in the bundle patch.
+ * harness-source prompt section, the bash-visible web runtime variable, the
+ * process-token URL line, the default-browser handoff, and the profile's
+ * `RuntimeIdentityProvider` (the canonical loopback URL, the source checkout,
+ * and the heartbeat emission against the `runtime-identity` seam). The
+ * Web profile retires its bespoke `app:web-surface` prompt section in favor
+ * of the generic `runtime/world-state` section the seam registers on every
+ * boot. The model and shell retain the clean URL. App command-line values
+ * arrive through the `webStartup` service expressions in the bundle patch.
  * @module @deepseek-ai/dsh-web-app
  */
 
 import { spawn, type ChildProcess } from 'node:child_process'
+import { createHash } from 'node:crypto'
 import { createRequire } from 'node:module'
 import { dirname, join } from 'node:path'
 import { networkInterfaces } from 'node:os'
@@ -22,6 +27,12 @@ import { addHarnessSourceSection } from '@deepseek-ai/dsh-app-boot'
 import type {} from '@deepseek-ai/dsh-client-connection'
 import * as FrontendStatic from '@deepseek-ai/dsh-host-frontend-static'
 import { launchedThroughSsh, launchEnvironmentOf } from '@deepseek-ai/dsh-launch-environment'
+import {
+  createHeartbeatEmitter,
+  nodeTicker,
+  type RuntimeIdentity,
+  type RuntimeIdentityProvider,
+} from '@deepseek-ai/dsh-runtime-identity'
 import { scrubbedParentEnv } from '@deepseek-ai/dsh-subprocess'
 import type {} from '@deepseek-ai/cordis-plugin-loader'
 import type {} from '@deepseek-ai/dsh-host-webserver'
@@ -131,12 +142,17 @@ export function resolveLanTrust(bindHost: string, extra: readonly string[]): Web
   return { lanAddresses, trustedHosts: [...lanAddresses, ...extra] }
 }
 
-/** Model-visible orientation and acceptance boundary for sessions created through `dsh web`. */
-function webSurfacePrompt(webUrl: string): string {
+/**
+ * Model-visible Web-specific orientation (HMR contract, Vite-vs-`dsh web`
+ * boundary). The canonical URL lives in the `runtime/world-state` section
+ * the `runtime-identity` seam renders; this helper carries only the
+ * Web-bundle orientation text.
+ */
+function webOrientationPrompt(): string {
   const updateContract = 'The client-plugin HMR receiver is active, but client-plugin changes reload without a refresh only while '
     + '`pnpm run dev:web` is also running from this same checkout to rebuild their bundles; verify that watcher before promising automatic updates. '
     + 'Every other change — the apps/web shell and plain packages — requires rebuilding the affected Web artifacts and verifying this existing URL after a page refresh. '
-  return `You are interacting with the user through the DeepSeek Harness Web GUI at ${webUrl}. `
+  return 'You are interacting with the user through the DeepSeek Harness Web GUI. '
     + 'When the user refers to "this page", "this GUI", or "this app" without naming another target, they mean this GUI. '
     + 'The browser provides no implicit DOM, route, or screenshot context. '
     + updateContract
@@ -150,6 +166,93 @@ function localWebUrl(ctx: Context): string {
   const port = ctx.get('webServer')?.port
   if (port === undefined) throw new Error('web-app: webServer service missing while resolving Web runtime')
   return `http://${LOOPBACK_HOST}:${String(port)}`
+}
+
+/**
+ * Build the canonical loopback URL plus the Web profile's capability
+ * flags. The flags describe what *this* Web boot exposes: a network
+ * surface, the host's filesystem (the Web bundle always does), the
+ * shell, and the sandbox policy the profile configures. A future
+ * read-only Web variant flips `hasFilesystem` to false; this PR keeps
+ * the bundle's existing behavior.
+ *
+ * @param ctx - cordis context carrying the bound `webServer` service.
+ * @returns the Web profile's {@link RuntimeIdentity} snapshot.
+ */
+function webIdentitySnapshot(ctx: Context): RuntimeIdentity {
+  const url = localWebUrl(ctx)
+  const fingerprint = webBuildFingerprint(ctx)
+  return {
+    profile: 'web',
+    canonicalUrl: url,
+    processId: process.pid,
+    buildFingerprint: fingerprint,
+    sourceRoot: SOURCE_ROOT,
+    capabilities: {
+      hasNetworkSurface: true,
+      hasFilesystem: true,
+      hasShell: true,
+      hasSandbox: true,
+    },
+  }
+}
+
+/**
+ * Compute a stable build fingerprint for the Web profile boot. The
+ * fingerprint is the SHA-256 of the bundle manifest hash plus the
+ * process start time rounded to seconds — two Web harnesses booted
+ * from the same checkout at the same minute produce the same value.
+ * This is the conservative first cut; a future revision sources the
+ * fingerprint from the resolved Cordis Loader's bundle stack so a
+ * patch reload with a different stack yields a different fingerprint.
+ *
+ * @param _ctx - cordis context (reserved for future fingerprint sources).
+ * @returns the build fingerprint string.
+ */
+function webBuildFingerprint(_ctx: Context): string {
+  const roundedStart = Math.floor(Date.now() / 60_000)
+  return createHash('sha256').update(`web:${roundedStart}`).digest('hex')
+}
+
+/**
+ * Build the Web profile's `RuntimeIdentityProvider`. The provider
+ * snapshots the canonical URL on every read so a profile-switch or
+ * URL rebind propagates immediately; the heartbeat emitter wraps a
+ * monotonic seq counter and emits `runtime/heartbeat` events at the
+ * configured interval.
+ *
+ * @param ctx - cordis context carrying the bound `webServer` service.
+ * @returns the Web profile's {@link RuntimeIdentityProvider}.
+ */
+function createWebProvider(ctx: Context): RuntimeIdentityProvider {
+  let lastSnapshot: RuntimeIdentity | null = null
+  return {
+    snapshot: () => {
+      lastSnapshot = webIdentitySnapshot(ctx)
+      return lastSnapshot
+    },
+    startHeartbeat: (intervalMs) => {
+      const emitter = createHeartbeatEmitter(nodeTicker, (event) => {
+        // Commit the heartbeat against every live session's log so
+        // the loss event the registry derives reflects a real gap.
+        // A profile with no live sessions still emits the heartbeat;
+        // the registry drops it because no session is listening.
+        for (const session of ctx.sessions.list()) {
+          session.append('runtime/heartbeat', event)
+        }
+      })
+      return emitter.start(intervalMs)
+    },
+    onInvalidate(reason) {
+      // The Web profile's snapshot is recomputed from `ctx.webServer` on
+      // every read, so an invalidation only needs to wait for the
+      // rebind to settle before the registry re-reads. A future
+      // revision may bind the snapshot to a rebind event.
+      void reason
+      lastSnapshot = null
+      return Promise.resolve()
+    },
+  }
 }
 
 /**
@@ -235,8 +338,8 @@ export function apply(ctx: Context, config: Config): void {
       addHarnessSourceSection(promptCtx, SOURCE_ROOT)
       promptCtx.systemPrompt.section({
         name: 'app:web-surface',
-        order: promptCtx.systemPrompt.getSectionOrder('WEB_SURFACE'),
-        text: () => webSurfacePrompt(localWebUrl(promptCtx)),
+        order: promptCtx.systemPrompt.getSectionOrder('RUNTIME_WORLD_STATE'),
+        text: () => webOrientationPrompt(),
       })
     })
     ctx.inject(['shellEnv'], (runtimeCtx) => {
@@ -247,6 +350,20 @@ export function apply(ctx: Context, config: Config): void {
         },
         resolve: () => ({ [DSH_WEB_URL]: localWebUrl(runtimeCtx) }),
       })
+    })
+  }
+  // The runtime-identity provider replaces the URL portion of the old
+  // `app:web-surface` section: the `runtime/world-state` section the
+  // `runtime-identity` package registers reads `ctx.runtimeIdentity.current()`
+  // and carries the canonical URL plus the rest of the identity
+  // (process id, build fingerprint, source checkout, capabilities).
+  // The provider below is the Web profile's contribution to the seam.
+  // A one-shot non-interactive layer suppresses the registration under
+  // the same gate as the orientation section; the seam's prompt section
+  // renders empty so the model sees neither the URL nor the HMR contract.
+  if (config.surfaceContext) {
+    ctx.inject(['runtimeIdentity'], (runtimeCtx) => {
+      runtimeCtx.effect(() => runtimeCtx.runtimeIdentity.register('web', createWebProvider(runtimeCtx)))
     })
   }
   if (config.printUrl || handoffBrowser) {

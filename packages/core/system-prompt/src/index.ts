@@ -149,7 +149,7 @@ const SECTION_ORDERS = {
   STRUCTURED_OUTPUT: 9900,
   // Local paths and endpoints follow reusable instructions.
   HARNESS_SOURCE: 10000,
-  WEB_SURFACE: 10100,
+  RUNTIME_WORLD_STATE: 10100,
   DEPLOYMENT_PERSONA_SUFFIX: 10200,
 } as const
 

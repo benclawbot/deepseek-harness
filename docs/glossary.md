@@ -42,4 +42,11 @@ Domain vocabulary for DeepSeek Harness uses one canonical term per concept. Term
 
 - **Ralph loop** — one foreground fresh-agent workflow run toward an immutable objective. It is a model-facing tool policy composed from workflow and subagent primitives, not a same-session goal, agent-loop mode, scheduler, or generic workflow-script feature. <a id="ralph-loop"></a>
 - **Ralph round** — one fresh child session in a [Ralph loop](#ralph-loop). The child receives no parent or prior-child conversation seed; the shared workspace and one bounded [Ralph handoff](#ralph-handoff) carry cross-round state. <a id="ralph-round"></a>
-- **Ralph handoff** — the normalized bounded structured report passed from one continuing Ralph round to the next, containing status, summary, evidence, next steps, and blocker text. It supplements the shared workspace rather than replacing it as authority. <a id="ralph-handoff"></a>
+- **Ralph handoff** — the normalized bounded structured report passed from one continuing Ralph round to the next, containing status, summary, evidence, next steps, and blocker text. It supplements the shared workspace rather than replacing it as authority.
+
+## runtime identity
+
+- **runtime identity** — the model-visible, session-logged description of the running profile: its profile id, canonical network surface, process id, build fingerprint, and capability flags. Published through the `ctx.runtime` service and rendered on every turn in the `runtime/world-state` prompt section. <a id="runtime-identity"></a>
+- **RuntimeIdentityProvider** — the per-profile contract every shipped profile implements against the `ctx.runtime` registry. The registry calls `snapshot()` once at registration to seed the first `runtime/identity` event; subsequent calls happen on `invalidate()` (a profile switch or host restart). <a id="RuntimeIdentityProvider"></a>
+- **build fingerprint** — the content hash of the resolved bundle stack plus the source checkout id when known. Two harnesses booted from the same commit and bundle set produce the same fingerprint; consumers use it to identify a runtime across machines. <a id="build-fingerprint"></a>
+- **runtime heartbeat** — the periodic liveness marker each profile emits through `startHeartbeat()`. The session log stores the `runtime/heartbeat` event; a profile that stops emitting within one interval plus configured grace commits a `runtime/heartbeat-lost` event the next time the registry observes the lapse. <a id="ralph-handoff"></a>
