@@ -173,6 +173,13 @@
     - id: runtime-identity
       name: '@deepseek-ai/dsh-runtime-identity'
 
+    # User-invokable compaction with a persistent memory primitive:
+    # the model-facing `remember` tool, the human-facing `/memory` slash
+    # command, and the `memory/notes` prompt section. The store lives at
+    # `$DSH_HOME/memory.yaml` and reads back through `ctx.memory`.
+    - id: compaction-memory
+      name: '@deepseek-ai/dsh-compaction-memory'
+
     # OTel releases a Session-log prefix only after explicit user feedback,
     # regardless of model provider. Ordinary activity never triggers capture.
     # DSH_TELEMETRY_OTLP_URL overrides the production endpoint. A non-empty
