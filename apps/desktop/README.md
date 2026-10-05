@@ -386,6 +386,10 @@ pnpm run package:desktop:dir
 pnpm run package:desktop:mac:arm64:dir
 ```
 
+On Linux x64, `pnpm run package:linux:x64` creates an AppImage with a DeepSeek Harness launcher entry; `pnpm run package:linux:x64:dir` creates a runnable unpacked directory. Copy the AppImage to a convenient location, mark it executable with `chmod +x`, and launch it directly. Linux releases use the generic update feed `nightly.yml`.
+
+On Linux, **Check for Updates** runs the locally installed `dsh-update` command. It checks the upstream default branch and rebuilds and installs the AppImage when the source revision changes; quit and reopen the app to use it. The update build uses `~/.cache/dsh-linux/source` and leaves the working checkout and `~/.dsh` application data intact.
+
 To inspect or troubleshoot the prepared host-target resources without invoking electron-builder, stop the same pipeline after preparation:
 
 ```sh

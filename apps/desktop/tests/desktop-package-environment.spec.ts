@@ -7,6 +7,7 @@ import { resolveWindowsPackageSettings } from '../scripts/windows-package-settin
 
 const WINDOWS = { platform: 'win32', arch: 'x64' } as const
 const MACOS = { platform: 'darwin', arch: 'arm64' } as const
+const LINUX = { platform: 'linux', arch: 'x64' } as const
 const POLICY = { DSH_DESKTOP_MANDATORY_UPDATE_TEST_ORIGIN: 'https://policy.example.com',
   DSH_DESKTOP_MANDATORY_UPDATE_CONFIG: JSON.stringify({ allowedAuthOrigins: ['https://login.example.com'] }) }
 const RELEASE = { ...POLICY, DSH_DESKTOP_APP_ID: 'com.example.desktop', DOWNLOAD_TEST_ORIGIN: 'https://updates.example.com',
@@ -23,6 +24,14 @@ async function withDirectory(action: (directory: string) => Promise<void>): Prom
 }
 
 describe('Desktop local packaging configuration', () => {
+  it('loads Linux release settings from .env.linux and validates the generic feed', async () => {
+    await withDirectory(async (directory) => {
+      await writeFile(join(directory, '.env.linux'), `${Object.entries(RELEASE).map(([key, value]) => `${key}=${value}`).join('\n')}\n`)
+      const environment = loadDesktopPackageEnvironment('linux', {}, directory)
+      expect(environment.DSH_DESKTOP_APP_ID).toBe(RELEASE.DSH_DESKTOP_APP_ID)
+      expect(() => validateDesktopPackageEnvironment(environment, LINUX)).not.toThrow()
+    })
+  })
   it('takes cache concurrency from the Windows file and defaults to four without ambient overrides', async () => {
     await withDirectory(async (directory) => {
       const parent = { DSH_DESKTOP_WINDOWS_SIGNATURE_CACHE_CONCURRENCY: '8' }

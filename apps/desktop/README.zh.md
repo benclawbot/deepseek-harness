@@ -388,6 +388,10 @@ pnpm run package:desktop:dir
 pnpm run package:desktop:mac:arm64:dir
 ```
 
+在 Linux x64 上，运行 `pnpm run package:linux:x64` 可创建带有 DeepSeek Harness 启动器条目的 AppImage；运行 `pnpm run package:linux:x64:dir` 可创建可运行的解包目录。将 AppImage 复制到合适的位置，使用 `chmod +x` 添加可执行权限，然后直接启动。Linux 发布使用通用更新源 `nightly.yml`。
+
+在 Linux 上，**检查更新**会运行本地安装的 `dsh-update` 命令。该命令会检查上游默认分支；源代码版本发生变化时，会重新构建并安装 AppImage。退出并重新打开应用即可使用更新。更新构建使用 `~/.cache/dsh-linux/source`，不会更改工作区或 `~/.dsh` 应用数据。
+
 需要检查或诊断为宿主目标准备的资源而不调用 electron-builder 时，可以让同一流水线在准备完成后停止：
 
 ```sh

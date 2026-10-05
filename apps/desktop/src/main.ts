@@ -3,6 +3,8 @@ import { WINDOWS_TITLEBAR_HEIGHT } from './windows-layout.ts'
 /** Electron shell: desktop project ownership, custom protocol, windows, and lifecycle. */
 
 import { readFile, writeFile } from 'node:fs/promises'
+import { execFile } from 'node:child_process'
+import { promisify } from 'node:util'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import {
@@ -61,6 +63,15 @@ import { DesktopTray } from './tray.ts'
 import { DesktopBackgroundNotice } from './background-notice.ts'
 
 let focusPrimaryWindow = (): void => {}
+const execFileAsync = promisify(execFile)
+
+/** Open the existing shell for a supported dsh URL. */
+function handleProtocolUrl(value: string): void {
+  try {
+    const url = new URL(value)
+    if (url.protocol === 'dsh:' && url.hostname === 'open' && (url.pathname === '' || url.pathname === '/')) focusPrimaryWindow()
+  } catch { /* Other command-line arguments are not protocol requests. */ }
+}
 let stopForRecovery = async (): Promise<void> => {}
 let shuttingDown = false
 /**
@@ -438,7 +449,7 @@ async function main(): Promise<void> {
     return next.promise
   }
   const platformView = new DesktopPlatformView(join(app.getAppPath(), 'lib', 'preload-platform-account.cjs'),
-    () => locale.id === 'zh-CN' ? 'zh_CN' : 'en_US', process.platform === 'win32' ? 'win32' : 'darwin')
+    () => locale.id === 'zh-CN' ? 'zh_CN' : 'en_US', process.platform === 'win32' ? 'win32' : process.platform === 'linux' ? 'linux' : 'darwin')
   const backend = new DesktopBackendController((onFailure) => {
     const hostInspectPort = developmentHostInspectPort(development)
     const host = new DesktopHostProcess(resources.node, resources.dsh, activeProject,
@@ -789,7 +800,7 @@ async function main(): Promise<void> {
   })
   ipcMain.handle(DESKTOP_IPC.updatesOpen, async (event) => {
     assertProductSender(event)
-    await openUpdatePrompt()
+    await openUpdatePrompt(true)
   })
 
   let promptOperation: Promise<void> | undefined
@@ -801,6 +812,31 @@ async function main(): Promise<void> {
     let failedOperation: 'check' | 'download' | 'install' = 'check'
     promptOperation ??= Promise.resolve().then(async () => {
       if (manual) updateJournal?.action('check-requested')
+      if (process.platform === 'linux' && manual) {
+        const controller = new AbortController()
+        ordinaryDialogs.add(controller)
+        const parent = currentDialogWindow()
+        const progress = parent === undefined ? Promise.resolve() : updateDialog.show(parent, {
+          type: 'info', title: locale.messages.updateCheckTitle, message: locale.messages.updateChecking,
+          buttons: [locale.messages.later], cancelId: 0, signal: controller.signal,
+        })
+        try {
+          const command = join(app.getPath('home'), '.local', 'bin', 'dsh-update')
+          const { stdout } = await execFileAsync(command, [], { env: await loginShell, timeout: 3_600_000, maxBuffer: 16 * 1024 * 1024 })
+          const result = stdout.trim()
+          await ordinaryMessageBox({ type: 'info', title: locale.messages.updateCheckTitle,
+            message: result.includes('already current') ? locale.messages.updateCurrent : locale.messages.localUpdateInstalled,
+            detail: result.includes('already current') ? '' : locale.messages.localUpdateRestartDetail })
+        } catch (error) {
+          await ordinaryMessageBox({ type: 'error', title: locale.messages.updateCheckTitle,
+            message: locale.messages.localUpdateFailed, technicalDetails: error instanceof Error ? error.message : String(error) })
+        } finally {
+          controller.abort()
+          ordinaryDialogs.delete(controller)
+          await progress
+        }
+        return
+      }
       const joinedPolicyAuthentication = authenticationOperation !== undefined
       if (joinedPolicyAuthentication) await authenticatePolicy()
       if (isMandatory()) {
@@ -911,12 +947,32 @@ async function main(): Promise<void> {
     return policy
   }
 
+  let localCheckPending: Promise<void> | undefined
+  let nextLocalCheck = 0
+  const localCheckInterval = resolveDesktopUpdateScheduleConfig(process.env).intervalMs
+  const checkLocalUpdate = (): void => {
+    if (quitting || localCheckPending !== undefined || Date.now() < nextLocalCheck) return
+    nextLocalCheck = Date.now() + localCheckInterval
+    localCheckPending = (async () => {
+      const command = join(app.getPath('home'), '.local', 'bin', 'dsh-update')
+      const { stdout } = await execFileAsync(command, ['--check'], { env: await loginShell, timeout: 60_000, maxBuffer: 4096 })
+      const result: unknown = JSON.parse(stdout)
+      if (typeof result !== 'object' || result === null || !('status' in result) || !('revision' in result)
+        || !['current', 'available'].includes(String(result.status)) || typeof result.revision !== 'string'
+        || !/^[a-f0-9]{40}$/u.test(result.revision)) throw new Error('local update: invalid check result')
+      if (!isQuitting()) publishUpdate(result.status === 'current' ? { phase: 'idle' }
+        : { phase: 'available', version: result.revision.slice(0, 12) })
+    })().catch((error: unknown) => { console.error(error) }).finally(() => { localCheckPending = undefined })
+  }
+  const localCheckTimer = process.platform === 'linux' ? setInterval(checkLocalUpdate, localCheckInterval) : undefined
   const automaticCheck = (): void => {
+    if (process.platform === 'linux') { checkLocalUpdate(); return }
     if (!quitting) void mandatoryPolicy?.check('foreground-or-resume').catch((error: unknown) => { console.error(error) })
     if (!quitting) void updateSchedule.check().catch((error: unknown) => { console.error(error) })
   }
   powerMonitor.on('resume', automaticCheck)
   app.on('will-quit', () => {
+    clearInterval(localCheckTimer)
     updateSchedule.dispose()
     powerMonitor.off('resume', automaticCheck)
     updates.dispose()
@@ -1068,11 +1124,13 @@ async function main(): Promise<void> {
     browserGuests.bind(window, (guest, name) => shortcuts.attachGuest(window, guest, name))
     shortcuts.attach(window)
     window.on('focus', automaticCheck)
-    // Closing hides: the page and the Host keep running, and the next show resumes the same document.
     window.on('close', (event) => {
       if (quitting || shellInstallerOwnsQuit || sessionEnding) return
+      if (updateDialog.isOpen) { event.preventDefault(); updateDialog.focus(); return }
+      // Linux has no tray to reopen a hidden window, so closing ends the run:
+      // window-all-closed quits, and before-quit still confirms a live task.
+      if (process.platform === 'linux') return
       event.preventDefault()
-      if (updateDialog.isOpen) { updateDialog.focus(); return }
       const hide = (): void => {
         if (!quitting && !shellInstallerOwnsQuit && !sessionEnding && !window.isDestroyed()) hideMainWindow(window)
       }
@@ -1228,7 +1286,7 @@ async function main(): Promise<void> {
   if (app.isPackaged || process.env.DSH_DESKTOP_DEV_APP === '1') app.setAsDefaultProtocolClient('dsh')
   app.on('open-url', (event, url) => {
     event.preventDefault()
-    if (url === 'dsh://open' || url === 'dsh://open/') focusPrimaryWindow()
+    handleProtocolUrl(url)
   })
 
   app.on('activate', (_event, hasVisibleWindows) => {
@@ -1287,17 +1345,17 @@ async function main(): Promise<void> {
   const policyInput: unknown = app.isPackaged
     ? ('dshMandatoryUpdatePolicy' in manifest ? manifest.dshMandatoryUpdatePolicy : undefined)
     : developmentPolicy === undefined ? undefined : JSON.parse(developmentPolicy) as unknown
-  const policyConfig = resolveDesktopPolicyConfig(policyInput, !app.isPackaged)
+  const policyConfig = resolveDesktopPolicyConfig(process.platform === 'linux' ? undefined : policyInput, !app.isPackaged)
   if (policyConfig !== undefined) {
     if (policyConfig.authentication === 'feishu-test') {
       policyAuth = new DesktopPolicyTestAuth(policyConfig.origin, policyConfig.allowedAuthOrigins, locale,
         () => mandatoryUI?.confirmationWindow ?? currentDialogWindow(),
         (event) => { console.info(`desktop policy authentication: ${event}`); updateJournal?.action(`policy-login-${event}`) })
     }
-    if (!['win32', 'darwin'].includes(process.platform) || !['x64', 'arm64'].includes(process.arch)) throw new Error('desktop policy: unsupported platform')
+    if (!['win32', 'darwin', 'linux'].includes(process.platform) || !['x64', 'arm64'].includes(process.arch)) throw new Error('desktop policy: unsupported platform')
     let wasBlocking = false
     mandatoryPolicy = new DesktopMandatoryUpdatePolicy(policyConfig, {
-      platform: process.platform as 'win32' | 'darwin', arch: process.arch as 'x64' | 'arm64',
+      platform: process.platform as 'win32' | 'darwin' | 'linux', arch: process.arch as 'x64' | 'arm64',
       bundledDshVersion: app.isPackaged ? readDesktopRuntime(resources.dsh).release.version : app.getVersion(),
     }, (state) => {
       if (state.error !== 'authentication-required') policyAuthenticationQueued = false
@@ -1333,7 +1391,12 @@ async function main(): Promise<void> {
   publishUpdate(updateState)
 }
 
-const ownsDesktopInstance = claimDesktopSingleInstance(app, () => { focusPrimaryWindow() })
+const ownsDesktopInstance = claimDesktopSingleInstance(app, (commandLine) => {
+  focusPrimaryWindow()
+  if (process.platform === 'linux') {
+    for (const argument of commandLine) handleProtocolUrl(argument)
+  }
+})
 
 if (ownsDesktopInstance) void app.whenReady().then(main).catch(async (error: unknown) => {
   const message = error instanceof Error ? error.message : String(error)

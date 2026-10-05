@@ -21,6 +21,7 @@ const TARGETS = {
   'mac-arm64': { platform: 'darwin', arch: 'arm64', os: 'mac' },
   'mac-x64': { platform: 'darwin', arch: 'x64', os: 'mac' },
   'win-x64': { platform: 'win32', arch: 'x64', os: 'win' },
+  'linux-x64': { platform: 'linux', arch: 'x64', os: 'linux' },
 } as const satisfies Record<DesktopPackageTargetName, {
   readonly platform: NodeJS.Platform
   readonly arch: string
@@ -234,8 +235,10 @@ export async function createDesktopUploadPlan(
     throw new Error(`desktop upload: ${metadataFilename}.files must contain exactly one target update file`)
   }
 
-  const base = `deepseek-harness-${buildVersion}-${target.os}-${target.arch}`
-  const updaterExtension = target.platform === 'darwin' ? 'zip' : 'exe'
+  // electron-builder names the Linux AppImage with the uname architecture alias x86_64, not x64.
+  const artifactArch = target.platform === 'linux' ? 'x86_64' : target.arch
+  const base = `deepseek-harness-${buildVersion}-${target.os}-${artifactArch}`
+  const updaterExtension = target.platform === 'darwin' ? 'zip' : target.platform === 'linux' ? 'AppImage' : 'exe'
   const updaterInfo = updateFileInfo(metadata.files[0], `${metadataFilename}.files[0]`, `${base}.${updaterExtension}`)
   const updaterPath = await verifyChecksummedArtifact(artifactsRoot, updaterInfo)
   const artifacts: DesktopUploadArtifact[] = []
@@ -251,6 +254,11 @@ export async function createDesktopUploadPlan(
       uploadArtifact(updaterPath, binaryPrefix, 'application/zip'),
       uploadArtifact(blockmapPath, binaryPrefix, 'application/octet-stream'),
     )
+  }
+  else if (target.platform === 'linux') {
+    // The AppImage carries its own embedded block map, so the channel YAML is the only extra object.
+    installerArtifact = uploadArtifact(updaterPath, binaryPrefix, 'application/vnd.appimage')
+    artifacts.push(installerArtifact)
   }
   else {
     const blockmapPath = await requireArtifact(artifactsRoot, `${base}.exe.blockmap`)
@@ -278,7 +286,7 @@ export async function createDesktopUploadPlan(
     const stableFilename = metadataFilename.replace('nightly', 'latest')
     artifacts.push({ ...channelArtifact, filename: stableFilename, key: `${update.keyPrefix}/${stableFilename}` })
   }
-  const latestFilename = `dsh-latest-${target.platform === 'darwin' ? 'macos' : 'windows'}-${target.arch}.${target.platform === 'darwin' ? 'dmg' : 'exe'}`
+  const latestFilename = `dsh-latest-${target.platform === 'darwin' ? 'macos' : target.platform === 'win32' ? 'windows' : 'linux'}-${target.arch}.${target.platform === 'darwin' ? 'dmg' : target.platform === 'win32' ? 'exe' : 'AppImage'}`
   const latestKey = `desktop/${latestFilename}`
   return {
     environment: update.environment,
