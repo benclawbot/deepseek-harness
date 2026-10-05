@@ -29,7 +29,7 @@ describe('Desktop local packaging configuration', () => {
       await writeFile(join(directory, '.env.linux'), `${Object.entries(RELEASE).map(([key, value]) => `${key}=${value}`).join('\n')}\n`)
       const environment = loadDesktopPackageEnvironment('linux', {}, directory)
       expect(environment.DSH_DESKTOP_APP_ID).toBe(RELEASE.DSH_DESKTOP_APP_ID)
-      expect(() => validateDesktopPackageEnvironment(environment, LINUX)).not.toThrow()
+      expect(() => { validateDesktopPackageEnvironment(environment, LINUX) }).not.toThrow()
     })
   })
   it('takes cache concurrency from the Windows file and defaults to four without ambient overrides', async () => {

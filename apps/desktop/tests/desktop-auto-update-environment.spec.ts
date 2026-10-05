@@ -107,7 +107,7 @@ describe('desktop auto-update environment', () => {
     expect(() => resolveDesktopAutoUpdateEnvironment({
       DSH_DESKTOP_AUTO_UPDATE_ENV: 'staging',
     })).toThrow(/test.*production/u)
-    expect(() => resolveDesktopAutoUpdateTarget('freebsd' as NodeJS.Platform, 'x64')).toThrow(/unsupported target/u)
+    expect(() => resolveDesktopAutoUpdateTarget('freebsd', 'x64')).toThrow(/unsupported target/u)
     expect(() => desktopBuildRecordFilename('freebsd-x64' as 'mac-arm64')).toThrow(/unsupported target/u)
   })
 
