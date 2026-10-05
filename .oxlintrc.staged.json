@@ -2,7 +2,11 @@
   "$schema": "./node_modules/oxlint/configuration_schema.json",
   "extends": ["./.oxlintrc.json"],
   "options": {
-    "typeAware": false
+    "typeAware": false,
+    // Type-aware rules cannot run in this fast lane, so every directive that
+    // targets one is structurally unresolvable here and would report as unused.
+    // The authoritative .oxlintrc.json keeps the check with typeAware enabled.
+    "reportUnusedDisableDirectives": "off"
   },
   "ignorePatterns": [
     "**/lib/**",
