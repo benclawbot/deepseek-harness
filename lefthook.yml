@@ -53,3 +53,14 @@ pre-push:
   jobs:
     - name: typecheck
       run: pnpm run typecheck
+
+    # The staged pre-commit lane runs with typeAware off, so it cannot report
+    # the errors that only the type-aware rules see — a redundant assertion or
+    # a void shorthand survives it and fails the authoritative lint later. Check
+    # the files this push carries under .oxlintrc.json, scoped to those files so
+    # the checkpoint stays quick; CI still owns the repository-wide matrix.
+    - name: lint (type-aware, pushed files)
+      glob: '*.{ts,tsx,mts,cts,mjs}'
+      exclude:
+        - 'vendor/*/src/**'
+      run: node_modules/.bin/tsx scripts/run-oxlint.ts --config .oxlintrc.json --no-error-on-unmatched-pattern {push_files}
