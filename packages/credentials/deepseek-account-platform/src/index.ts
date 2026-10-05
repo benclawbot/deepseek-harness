@@ -88,7 +88,7 @@ export class PlatformAccount extends DeepSeekAccount {
   private readonly embeddedPageDist: string
   private readonly inferenceOrigin: string
   private readonly rewriteBrowserOrigin: boolean
-  private readonly platform: 'darwin' | 'win32' | null
+  private readonly platform: 'darwin' | 'win32' | 'linux' | null
   private readonly requestHeaders: Record<string, string>
   private readonly accountRequestHeaders: Record<string, string>
   private readonly requestTimeout: number

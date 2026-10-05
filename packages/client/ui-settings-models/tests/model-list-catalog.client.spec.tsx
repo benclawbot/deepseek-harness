@@ -15,6 +15,10 @@ function operations(discoverModels: ModelsOperations['discoverModels']): ModelsO
     storeCredential: vi.fn(),
     removeCredential: vi.fn(),
     writeSettings: vi.fn(),
+    codexAuthorizationStatus: vi.fn(),
+    authorizeCodex: vi.fn(),
+    answerCodexPrompt: vi.fn(),
+    signOutCodex: vi.fn(),
   }
 }
 

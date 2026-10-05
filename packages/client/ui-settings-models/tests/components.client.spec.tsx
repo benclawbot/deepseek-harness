@@ -1103,6 +1103,34 @@ describe('ModelsSection', () => {
     ])
   })
 
+  it('offers the ChatGPT sign-in instead of an API key field for openai-codex', async () => {
+    const { face } = scriptedFace()
+    const namespace: SettingsNamespaceView = {
+      ns: 'llm-pi-ai',
+      schema: JSON.parse(JSON.stringify(PiAiConfig.toJSON())) as JsonValue,
+      value: {},
+      autoGenerate: true, applies: 'live',
+      secrets: [],
+      revision: 0,
+    }
+    const { ProviderEditor } = await import('../src/client/ProviderEditor.tsx')
+    render(<ProviderEditor
+      provider="openai-codex"
+      displayName="openai-codex"
+      namespace={namespace}
+      schema={settingsSchema}
+      settingsPath={['providers', 'openai-codex']}
+      operations={operationsWith(face)}
+      t={t}
+      readOnly={false}
+      onClose={() => {}}
+    />)
+
+    expect(await screen.findByRole('status')).not.toBeNull()
+    expect(screen.queryByLabelText(en.keyInput)).toBeNull()
+    expect(screen.getByRole('button', { name: en.chatgptSignIn })).not.toBeNull()
+  })
+
   it('pins the deepseek placeholder and clears typed input back to inherited', async () => {
     const { face } = scriptedFace()
     const bare: SettingsNamespaceView = {

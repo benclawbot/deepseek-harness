@@ -1,0 +1,83 @@
+.root {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.status,
+.dialogBody p,
+.dialogBody label {
+  color: var(--dsw-alias-label-secondary);
+  font-size: 13px;
+  line-height: 20px;
+}
+
+.actions,
+.dialogActions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.error {
+  margin: 0;
+  color: var(--dsw-alias-state-error-primary);
+  font-size: 12px;
+}
+
+.detail {
+  overflow-wrap: anywhere;
+  opacity: 0.8;
+}
+
+.dialogError {
+  color: var(--dsw-alias-state-error-primary);
+}
+
+.dialog {
+  width: min(440px, calc(100vw - 32px));
+}
+
+.dialogBody {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 20px;
+}
+
+.dialogBody h2,
+.dialogBody p {
+  margin: 0;
+}
+
+.dialogBody h2 {
+  color: var(--dsw-alias-label-primary);
+  font-size: 16px;
+}
+
+.dialogBody a {
+  color: var(--dsw-alias-label-primary);
+  overflow-wrap: anywhere;
+}
+
+.prompt {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.promptInput {
+  box-sizing: border-box;
+  min-height: 36px;
+  padding: 6px 10px;
+  border: 0.5px solid var(--dsw-alias-border-l3);
+  border-radius: var(--dsw-radius-md);
+  background: var(--dsw-alias-settings-card-fill);
+  color: var(--dsw-alias-label-primary);
+  font: inherit;
+}
+
+.dialogActions {
+  justify-content: flex-end;
+  padding: 0 20px 20px;
+}

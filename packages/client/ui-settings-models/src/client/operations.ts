@@ -7,9 +7,20 @@
 
 import type { Context as ClientContext } from '@deepseek-ai/cordis'
 import type {
-  CredentialInfo, LlmDiscoveredModel, LlmModelDiscoveryRequest,
+  CredentialInfo, LlmDiscoveredModel, LlmModelDiscoveryRequest, ProviderAuthorizationFrame,
   SettingsNamespaceView, SettingsPathOpView,
 } from '@deepseek-ai/dsh-api-remotes/client'
+
+/**
+ * What the Host answered about the locally stored ChatGPT grant, or why it
+ * could not answer. The unreadable arm is a deployment fact, not a defect to
+ * swallow: a Client newer than its Host has no such Remote namespace at all,
+ * and a control that reported that as "not connected" would offer a button that
+ * cannot work.
+ */
+export type CodexAuthorizationStatus =
+  | { readonly kind: 'ready'; readonly available: boolean; readonly signedIn: boolean; readonly inFlight: boolean }
+  | { readonly kind: 'unreadable'; readonly message: string }
 
 /** What one namespace write answered. */
 export type SettingsWriteOutcome =
@@ -71,6 +82,17 @@ export interface ModelsOperations {
    * @returns the candidates, or the refusal.
    */
   discoverModels(settingsNs: string, request: LlmModelDiscoveryRequest): Promise<ModelDiscoveryOutcome>
+  /** Read ChatGPT OAuth availability without exposing its credential record. */
+  codexAuthorizationStatus(): Promise<CodexAuthorizationStatus>
+  /** Stream the existing pi-ai OAuth flow until it settles or the caller cancels. */
+  authorizeCodex(
+    onFrame: (frame: ProviderAuthorizationFrame) => void,
+    signal: AbortSignal,
+  ): Promise<void>
+  /** Answer one active pi-ai login prompt. */
+  answerCodexPrompt(id: string, value: string | null): Promise<void>
+  /** Remove the locally stored ChatGPT OAuth grant. */
+  signOutCodex(): Promise<string | undefined>
 }
 
 /**
@@ -104,6 +126,45 @@ export function createModelsOperations(ctx: ClientContext): ModelsOperations {
       return response.ok
         ? { kind: 'found', models: response.value }
         : { kind: 'refused', message: response.error.message }
+    },
+    codexAuthorizationStatus: async () => {
+      // A namespace this Client expects but its Host never installed is missing
+      // from the connection entirely, so reading it rejects rather than
+      // answering; both shapes report as unreadable instead of as "signed out".
+      try {
+        const response = await ctx.remote.providerAuthorization.state()
+        return response.ok
+          ? { kind: 'ready' as const, ...response.value }
+          : { kind: 'unreadable' as const, message: response.error.message }
+      } catch (error) {
+        return { kind: 'unreadable' as const, message: error instanceof Error ? error.message : String(error) }
+      }
+    },
+    authorizeCodex: async (onFrame, signal) => {
+      const stream = ctx.remote.$stream<ProviderAuthorizationFrame>({
+        name: 'models ChatGPT OAuth',
+        open: streamSignal => ctx.remote.providerAuthorization.authorize('oauth', streamSignal),
+        ended: () => new Error('ChatGPT authorization stream ended'),
+      })
+      const cancel = (): void => { void stream.dispose() }
+      signal.addEventListener('abort', cancel, { once: true })
+      try {
+        for await (const item of stream) {
+          item.accept()
+          onFrame(item.value)
+          if (item.value.type === 'settled' || item.value.type === 'failed') break
+        }
+      } finally {
+        signal.removeEventListener('abort', cancel)
+        await stream.dispose()
+      }
+    },
+    answerCodexPrompt: async (id, value) => {
+      await ctx.remote.providerAuthorization.answer(id, value)
+    },
+    signOutCodex: async () => {
+      const response = await ctx.remote.providerAuthorization.signOut()
+      return response.ok ? undefined : response.error.message
     },
   }
 }

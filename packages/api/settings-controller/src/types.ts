@@ -32,3 +32,22 @@ declare module '@deepseek-ai/dsh-typert-protocol' {
 export interface SettingsDocumentOpenValue {
   readonly opened: true
 }
+
+/** A notice or question the Models page can render without seeing credentials. */
+export type ProviderAuthorizationFrame =
+  | { readonly type: 'notice'; readonly message: string; readonly url?: string; readonly code?: string }
+  | { readonly type: 'prompt'; readonly id: string; readonly prompt: ProviderAuthorizationPromptView }
+  | { readonly type: 'settled'; readonly status: 'authorized' | 'cancelled' }
+  /** The attempt broke; `message` is the flow's own diagnostic, never a credential. */
+  | { readonly type: 'failed'; readonly message: string }
+
+/** One choice of a select prompt, as the page renders it. */
+export interface ProviderAuthorizationOptionView {
+  readonly id: string
+  readonly label: string
+}
+
+/** JSON-safe prompt fields, with the per-attempt AbortSignal removed. */
+export type ProviderAuthorizationPromptView =
+  | { readonly kind: 'text' | 'secret'; readonly message: string; readonly placeholder?: string }
+  | { readonly kind: 'select'; readonly message: string; readonly options: readonly ProviderAuthorizationOptionView[] }
