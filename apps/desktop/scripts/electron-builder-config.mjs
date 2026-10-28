@@ -102,6 +102,7 @@ export function createElectronBuilderConfig(
     protocols: [{ name: 'DeepSeek Harness', schemes: ['dsh'] }],
     extraMetadata: {
       dshDesktopAppId: appId,
+      ...resolvedPlatform === 'linux' ? { desktopName: `${appId}.desktop` } : {},
       dshMandatoryUpdatePolicy: policy,
       ...buildVersion === productVersion ? {} : { version: buildVersion },
       ...packaged === undefined ? {} : { dshBuildCommit: packaged.commit, dshBuildDirty: packaged.dirty },
@@ -234,8 +235,7 @@ export function createElectronBuilderConfig(
       icon: fileURLToPath(new URL('../resources/icon-linux.png', import.meta.url)),
       category: 'Development',
       executableName: 'deepseek-harness',
-      // Without this the window manager cannot associate running windows with the generated .desktop entry.
-      desktopName: 'deepseek-harness',
+      syncDesktopName: true,
       desktop: { entry: { Name: 'DeepSeek Harness', Comment: 'AI development assistant', Categories: 'Development;Utility;' } },
       target: ['AppImage'],
     },
